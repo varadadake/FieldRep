@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(timeout 30 npx expo-doctor)",
+      "Bash(node -e \"require\\('./src/utils/search.js'\\); console.log\\('search ok'\\)\")",
+      "PowerShell(Get-ChildItem -Force \"C:\\\\Users\\\\DHANANJAY ADAKE\\\\FieldRep\\\\node_modules\\\\.bin\" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'expo' } | Select-Object -First 5 Name)",
+      "PowerShell($f = \"C:\\\\Users\\\\DHANAN~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-DHANANJAY-ADAKE-FieldRep\\\\0da21002-2dcb-42b7-975b-31dfbf4ec51c\\\\tasks\\\\bz5ycxeid.output\"; if \\(Test-Path $f\\) { \\(Get-Item $f\\).Length } else { \"missing\" })",
+      "Bash(npx expo *)",
+      "Bash(node test-search.cjs)",
+      "Bash(npm view *)",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\); const p=JSON.parse\\(d\\); console.log\\(JSON.stringify\\({peerDeps: p.peerDependencies, deps: p.dependencies},null,2\\)\\)\")"
+    ]
+  }
+}

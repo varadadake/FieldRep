@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "FieldRep",
+    "slug": "fieldrep",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "fieldrep",
+    "newArchEnabled": false,
+    "platforms": ["ios", "android", "web"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.atharva.fieldrep"
+    },
+    "android": {
+      "package": "com.atharva.fieldrep",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow FieldRep to access your microphone."
+        }
+      ]
+    ]
+  }
+}

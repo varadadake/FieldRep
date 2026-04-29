@@ -1,0 +1,17 @@
+export const PRODUCTS = [
+  { id: 101, name: "Maggi Noodles 70g",     brand: "Nestle",    unit: "packet", price: 14  },
+  { id: 102, name: "Knorr Soup Tomato 45g", brand: "HUL",       unit: "packet", price: 22  },
+  { id: 103, name: "Surf Excel 1kg",        brand: "HUL",       unit: "bag",    price: 239 },
+  { id: 104, name: "Dettol Handwash 200ml", brand: "Reckitt",   unit: "bottle", price: 89  },
+  { id: 105, name: "Lays Classic Salted",   brand: "PepsiCo",   unit: "packet", price: 20  },
+  { id: 106, name: "Parle-G 800g",          brand: "Parle",     unit: "pack",   price: 55  },
+  { id: 107, name: "Tata Salt 1kg",         brand: "Tata",      unit: "packet", price: 28  },
+  { id: 108, name: "Amul Butter 500g",      brand: "Amul",      unit: "block",  price: 250 },
+  { id: 109, name: "Britannia Good Day",    brand: "Britannia", unit: "pack",   price: 35  },
+  { id: 110, name: "Colgate Strong Teeth",  brand: "Colgate",   unit: "tube",   price: 99  },
+  { id: 111, name: "Vim Bar 200g",          brand: "HUL",       unit: "bar",    price: 22  },
+  { id: 112, name: "Lifebuoy Soap 100g",    brand: "HUL",       unit: "bar",    price: 35  },
+  { id: 113, name: "Kurkure Masala Munch",  brand: "PepsiCo",   unit: "packet", price: 20  },
+  { id: 114, name: "Rin Detergent 1kg",     brand: "HUL",       unit: "bag",    price: 89  },
+  { id: 115, name: "Nescafe Classic 50g",   brand: "Nestle",    unit: "jar",    price: 145 },
+]
