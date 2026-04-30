@@ -1,8 +1,17 @@
-import React, { useState, useMemo, useCallback } from 'react'
-import { View, Text, TextInput, FlatList, StyleSheet, TouchableOpacity } from 'react-native'
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import {
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Platform,
+} from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
-import { VoiceSDK } from '@sociovate/samvaad'
+import { useVoice } from '../../src/hooks/useVoice'
 import { SHOPS } from '../../src/data/shops'
 import { searchShops } from '../../src/utils/search'
 import { getShopStatuses, getVisits } from '../../src/utils/storage'
@@ -19,7 +28,9 @@ export default function ShopList() {
   const [query, setQuery] = useState('')
   const [statuses, setStatuses] = useState({})
   const [lastVisits, setLastVisits] = useState({})
-  const [recording, setRecording] = useState(false)
+
+  // Global mic on the list page — intents handled by _layout.jsx, so no local callback
+  const { isRecording, isProcessing, error, startRecording, stopAndProcess } = useVoice(null)
 
   const loadData = useCallback(async () => {
     const [s, visits] = await Promise.all([getShopStatuses(), getVisits()])
@@ -32,9 +43,7 @@ export default function ShopList() {
   }, [])
 
   useFocusEffect(
-    useCallback(() => {
-      loadData()
-    }, [loadData])
+    useCallback(() => { loadData() }, [loadData])
   )
 
   const filtered = useMemo(() => {
@@ -42,15 +51,30 @@ export default function ShopList() {
     return searchShops(query)
   }, [query])
 
-  const startVoice = () => {
-    setRecording(true)
-    VoiceSDK.startRecording()
-  }
+  // Tap toggles record → stop+process
+  const handleMicPress = useCallback(() => {
+    if (isRecording) stopAndProcess()
+    else if (!isProcessing) startRecording()
+  }, [isRecording, isProcessing, startRecording, stopAndProcess])
 
-  const stopVoice = () => {
-    setRecording(false)
-    VoiceSDK.stopRecordingAndProcess()
-  }
+  // Pulse while recording
+  const pulse = useRef(new Animated.Value(1)).current
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1.15, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ])
+      ).start()
+    } else {
+      pulse.stopAnimation()
+      Animated.timing(pulse, { toValue: 1, duration: 100, useNativeDriver: true }).start()
+    }
+  }, [isRecording])
+
+  const micBg = isRecording ? '#DC2626' : isProcessing ? '#6B7280' : '#2563EB'
+  const micIcon = isRecording ? '⏹' : isProcessing ? '⏳' : '🎙'
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -59,14 +83,37 @@ export default function ShopList() {
           <Text style={styles.title}>FieldRep</Text>
           <Text style={styles.subtitle}>{SHOPS.length} shops on route</Text>
         </View>
-        <TouchableOpacity
-          style={[styles.micBtn, recording && styles.micBtnActive]}
-          onPressIn={startVoice}
-          onPressOut={stopVoice}
-        >
-          <Text style={styles.micIcon}>{recording ? '⏹' : '🎙'}</Text>
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: pulse }] }}>
+          <TouchableOpacity
+            style={[styles.micBtn, { backgroundColor: micBg }]}
+            onPress={handleMicPress}
+            disabled={false}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.micIcon}>{micIcon}</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
+
+      {isRecording && (
+        <View style={styles.recordingBar}>
+          <View style={styles.recordingDot} />
+          <Text style={styles.recordingText}>Listening — tap the button again to send</Text>
+        </View>
+      )}
+
+      {isProcessing && (
+        <View style={styles.processingBar}>
+          <Text style={styles.processingText}>Processing your voice…</Text>
+        </View>
+      )}
+
+      {error && !isRecording && !isProcessing && (
+        <View style={styles.errorBar}>
+          <Text style={styles.errorText}>{error.message || 'Error — try again'}</Text>
+        </View>
+      )}
+
       <View style={styles.searchWrap}>
         <TextInput
           style={styles.search}
@@ -76,11 +123,7 @@ export default function ShopList() {
           autoCorrect={false}
         />
       </View>
-      {recording && (
-        <View style={styles.listeningBar}>
-          <Text style={styles.listeningText}>Listening... release when done</Text>
-        </View>
-      )}
+
       <FlatList
         data={filtered}
         keyExtractor={(item) => String(item.id)}
@@ -114,19 +157,49 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#2563EB',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  micBtnActive: { backgroundColor: '#DC2626' },
   micIcon: { fontSize: 22 },
-  listeningBar: {
-    backgroundColor: '#FEE2E2',
+  recordingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FECACA',
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#DC2626',
+  },
+  recordingText: { fontSize: 13, color: '#991B1B', fontWeight: '600' },
+  processingBar: {
     paddingVertical: 8,
     alignItems: 'center',
+    backgroundColor: '#F0F9FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#BAE6FD',
   },
-  listeningText: { color: '#DC2626', fontWeight: '600', fontSize: 13 },
+  processingText: { fontSize: 13, color: '#0369A1', fontWeight: '600' },
+  errorBar: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#FEF2F2',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FECACA',
+  },
+  errorText: { fontSize: 13, color: '#991B1B', textAlign: 'center' },
   searchWrap: { paddingHorizontal: 12, paddingVertical: 10 },
   search: {
     backgroundColor: '#fff',

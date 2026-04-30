@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
-import { Alert } from 'react-native'
+import { Alert, Platform } from 'react-native'
 import { Stack } from 'expo-router'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { VoiceSDK } from '@sociovate/samvaad'
+import { WebAudioRecorder } from '../src/audio/WebAudioRecorder'
 import { findShop, findProduct } from '../src/utils/search'
 import { createVisit, setShopStatus } from '../src/utils/storage'
 
@@ -35,8 +36,16 @@ export default function RootLayout() {
       ],
     })
 
+    // Inject the fixed web recorder so the SDK uses the app-bundle version,
+    // not whatever stale code Metro may have cached from the SDK folder.
+    if (Platform.OS === 'web') {
+      VoiceSDK._recorder = new WebAudioRecorder()
+    }
+
     VoiceSDK.onIntent(async (intent) => {
       if (intent.name === 'log_order') {
+        // Order screen handles this intent itself — only process here when shop_name is provided
+        if (!intent.params.shop_name) return
         const shop = findShop(intent.params.shop_name)
         if (!shop) {
           Alert.alert('Shop not found', `Could not find "${intent.params.shop_name}"`)
