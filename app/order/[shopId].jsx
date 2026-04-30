@@ -17,7 +17,7 @@ import { SHOPS } from '../../src/data/shops'
 import { findProduct } from '../../src/utils/search'
 import ProductSearch from '../../src/components/ProductSearch'
 import { createVisit, setShopStatus } from '../../src/utils/storage'
-import { useVoice } from '../../src/hooks/useVoice'
+import { useVoice } from '@sociovate/samvaad'
 
 const PAYMENT_OPTIONS = [
   { key: 'cash', label: 'Cash' },
@@ -76,6 +76,14 @@ export default function OrderEntry() {
   }, [])
 
   const { isRecording, isProcessing, error: voiceError, startRecording, stopAndProcess } = useVoice(handleIntent)
+
+  // Elapsed timer while processing so user sees it's not frozen
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!isProcessing) { setElapsed(0); return }
+    const t = setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => clearInterval(t)
+  }, [isProcessing])
 
   // Tap toggles record → stop+process
   const handleMicPress = useCallback(() => {
@@ -141,7 +149,7 @@ export default function OrderEntry() {
 
   // ── Derived button state ──────────────────────────────────────────────────
   const btnBg = isRecording ? '#DC2626' : isProcessing ? '#6B7280' : '#16A34A'
-  const btnLabel = isRecording ? 'Tap to stop & send' : isProcessing ? 'Processing…' : 'Tap to speak'
+  const btnLabel = isRecording ? 'Tap to stop & send' : isProcessing ? `Processing… ${elapsed}s` : 'Tap to speak'
   const btnIcon = isRecording ? '⏹' : isProcessing ? '⏳' : '🎙'
 
   return (

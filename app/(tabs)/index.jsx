@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
-import { useVoice } from '../../src/hooks/useVoice'
+import { useVoice } from '@sociovate/samvaad'
 import { SHOPS } from '../../src/data/shops'
 import { searchShops } from '../../src/utils/search'
 import { getShopStatuses, getVisits } from '../../src/utils/storage'

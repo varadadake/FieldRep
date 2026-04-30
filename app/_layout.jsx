@@ -14,10 +14,17 @@ export default function RootLayout() {
       apiKey: 'sk_test_samvaad',
       apiUrl: 'https://samvaad-api-production.up.railway.app',
       language: 'hinglish',
+      timeout: 20000,
+      maxRetries: 1,
+      // Hints help Sarvam STT recognise domain-specific words accurately
+      hints: [
+        'Maggi', 'Parle-G', 'chai', 'biscuit', 'noodles', 'soap', 'oil',
+        'cash', 'nakit', 'naqd', 'udhaar', 'credit', 'baad mein', 'pending',
+      ],
       intents: [
         {
           name: 'log_order',
-          description: 'Sales rep logs products ordered by a shop',
+          description: 'Sales rep logs products ordered by a shop. Items is an array of {product, qty}. Payment is one of: cash, credit, pending.',
           params: [
             { name: 'shop_name', type: 'string' },
             { name: 'items', type: 'array' },
@@ -26,7 +33,7 @@ export default function RootLayout() {
         },
         {
           name: 'mark_visit',
-          description: 'Rep marks a shop visit complete',
+          description: 'Rep marks a shop visit complete with no order',
           params: [
             { name: 'shop_name', type: 'string' },
             { name: 'outcome', type: 'string' },
@@ -36,15 +43,19 @@ export default function RootLayout() {
       ],
     })
 
-    // Inject the fixed web recorder so the SDK uses the app-bundle version,
-    // not whatever stale code Metro may have cached from the SDK folder.
+    // Web-only: inject the app-bundle audio recorder so we don't depend on
+    // whatever Metro may have cached from the SDK folder.
+    // Use the public setRecorder() API — not an internal property.
+    // TODO: remove this after running `expo start --clear` confirms the SDK's
+    // own audio-recorder.js is being picked up fresh.
     if (Platform.OS === 'web') {
-      VoiceSDK._recorder = new WebAudioRecorder()
+      VoiceSDK.setRecorder(new WebAudioRecorder())
     }
 
     VoiceSDK.onIntent(async (intent) => {
       if (intent.name === 'log_order') {
-        // Order screen handles this intent itself — only process here when shop_name is provided
+        // Order screen handles this when user is already inside a shop.
+        // Only handle here when shop_name is spoken (global voice command).
         if (!intent.params.shop_name) return
         const shop = findShop(intent.params.shop_name)
         if (!shop) {
@@ -52,21 +63,17 @@ export default function RootLayout() {
           return
         }
         const items = (intent.params.items || []).map((it) => {
-          const product = findProduct(it.name || it.product_name || '')
+          const product = findProduct(it.product || it.name || it.product_name || '')
           return {
             productId: product?.id ?? null,
-            productName: product?.name ?? (it.name || it.product_name || 'Unknown'),
-            qty: it.qty ?? it.quantity ?? 1,
+            productName: product?.name ?? (it.product || it.name || it.product_name || 'Unknown'),
+            qty: Number(it.qty ?? it.quantity ?? 1),
           }
         })
         await createVisit({
-          shopId: shop.id,
-          shopName: shop.name,
-          outcome: 'order',
-          items,
-          payment: intent.params.payment || 'pending',
-          notes: '',
-          nextFollowUp: null,
+          shopId: shop.id, shopName: shop.name, outcome: 'order',
+          items, payment: intent.params.payment || 'pending',
+          notes: '', nextFollowUp: null,
         })
         await setShopStatus(shop.id, 'visited')
         Alert.alert('Order logged ✓', `${shop.name} — ${items.length} item(s)`)
@@ -79,12 +86,9 @@ export default function RootLayout() {
           return
         }
         await createVisit({
-          shopId: shop.id,
-          shopName: shop.name,
+          shopId: shop.id, shopName: shop.name,
           outcome: intent.params.outcome === 'order' ? 'order' : 'no_order',
-          items: [],
-          payment: 'pending',
-          notes: '',
+          items: [], payment: 'pending', notes: '',
           nextFollowUp: intent.params.next_date ?? null,
         })
         await setShopStatus(shop.id, 'visited')
