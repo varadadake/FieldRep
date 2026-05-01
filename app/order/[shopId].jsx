@@ -50,7 +50,7 @@ function intentItemsToOrderItems(intentItems) {
 }
 
 export default function OrderEntry() {
-  const { shopId } = useLocalSearchParams()
+  const { shopId, prefill } = useLocalSearchParams()
   const router = useRouter()
   const shop = useMemo(() => SHOPS.find((s) => String(s.id) === String(shopId)), [shopId])
 
@@ -59,6 +59,25 @@ export default function OrderEntry() {
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
+
+  // Pre-fill from global voice command (navigated here from shop list)
+  const prefillApplied = useRef(false)
+  useEffect(() => {
+    if (prefill && !prefillApplied.current) {
+      prefillApplied.current = true
+      try {
+        const data = JSON.parse(prefill)
+        const newItems = intentItemsToOrderItems(data.items)
+        if (newItems.length > 0) setItems(newItems)
+        const paymentKey = parsePaymentKey(data.payment)
+        if (paymentKey) setPayment(paymentKey)
+        const summary = newItems.map((it) => `${it.productName} ×${it.qty}`).join(', ')
+        showToast(summary || 'Order pre-filled — review below')
+      } catch (e) {
+        console.warn('[OrderEntry] Failed to parse prefill:', e)
+      }
+    }
+  }, [prefill])
 
   const showToast = (msg) => {
     setToast(msg)

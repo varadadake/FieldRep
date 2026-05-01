@@ -1,14 +1,18 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Alert, Platform } from 'react-native'
-import { Stack } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { VoiceSDK } from '@sociovate/samvaad'
 import { WebAudioRecorder } from '../src/audio/WebAudioRecorder'
-import { findShop, findProduct } from '../src/utils/search'
+import { findShop } from '../src/utils/search'
 import { createVisit, setShopStatus } from '../src/utils/storage'
 
 export default function RootLayout() {
+  const router = useRouter()
+  const routerRef = useRef(router)
+  useEffect(() => { routerRef.current = router }, [router])
+
   useEffect(() => {
     VoiceSDK.init({
       apiKey: 'sk_test_samvaad',
@@ -16,15 +20,18 @@ export default function RootLayout() {
       language: 'hinglish',
       timeout: 20000,
       maxRetries: 1,
-      // Hints help Sarvam STT recognise domain-specific words accurately
       hints: [
         'Maggi', 'Parle-G', 'chai', 'biscuit', 'noodles', 'soap', 'oil',
+        'Surf Excel', 'Dettol', 'Lays', 'Tata Salt', 'Amul', 'Britannia',
+        'Colgate', 'Vim', 'Lifebuoy', 'Kurkure', 'Rin', 'Nescafe',
+        'Sharma', 'Raju', 'Patel', 'Singh', 'Gupta', 'Raj', 'Meena',
+        'Hari Om', 'Laxmi', 'Suresh', 'Anand', 'Kumar', 'Sai', 'Ganesh',
         'cash', 'nakit', 'naqd', 'udhaar', 'credit', 'baad mein', 'pending',
       ],
       intents: [
         {
           name: 'log_order',
-          description: 'Sales rep logs products ordered by a shop. Items is an array of {product, qty}. Payment is one of: cash, credit, pending.',
+          description: 'Sales rep logs products ordered by a shop. Items is an array of {product, qty}. Payment is one of: cash, credit, pending. shop_name identifies which shop.',
           params: [
             { name: 'shop_name', type: 'string' },
             { name: 'items', type: 'array' },
@@ -33,56 +40,55 @@ export default function RootLayout() {
         },
         {
           name: 'mark_visit',
-          description: 'Rep marks a shop visit complete with no order',
+          description: 'Rep marks a shop visit complete with no order. Outcome is "no_order" by default.',
           params: [
             { name: 'shop_name', type: 'string' },
             { name: 'outcome', type: 'string' },
             { name: 'next_date', type: 'date', nullable: true },
           ],
         },
+        {
+          name: 'open_shop',
+          description: 'Navigate to a shop page by name. Use when user says "open X", "go to X", "show X".',
+          params: [
+            { name: 'shop_name', type: 'string' },
+          ],
+        },
       ],
     })
 
-    // Web-only: inject the app-bundle audio recorder so we don't depend on
-    // whatever Metro may have cached from the SDK folder.
-    // Use the public setRecorder() API — not an internal property.
-    // TODO: remove this after running `expo start --clear` confirms the SDK's
-    // own audio-recorder.js is being picked up fresh.
     if (Platform.OS === 'web') {
       VoiceSDK.setRecorder(new WebAudioRecorder())
     }
 
     VoiceSDK.onIntent(async (intent) => {
+      console.log('[FieldRep Global] Intent received:', JSON.stringify(intent))
+
       if (intent.name === 'log_order') {
-        // Order screen handles this when user is already inside a shop.
-        // Only handle here when shop_name is spoken (global voice command).
+        // If no shop_name, the order screen's own handler will deal with it
+        // (user is already inside a shop). Skip global handling.
         if (!intent.params.shop_name) return
+
         const shop = findShop(intent.params.shop_name)
         if (!shop) {
-          Alert.alert('Shop not found', `Could not find "${intent.params.shop_name}"`)
+          Alert.alert('Shop not found', `Could not match "${intent.params.shop_name}" to any shop on your route.`)
           return
         }
-        const items = (intent.params.items || []).map((it) => {
-          const product = findProduct(it.product || it.name || it.product_name || '')
-          return {
-            productId: product?.id ?? null,
-            productName: product?.name ?? (it.product || it.name || it.product_name || 'Unknown'),
-            qty: Number(it.qty ?? it.quantity ?? 1),
-          }
+
+        // Navigate to the order page with pre-filled data as query params.
+        // User reviews and submits — no silent order creation.
+        const prefill = JSON.stringify({
+          items: intent.params.items || [],
+          payment: intent.params.payment || null,
         })
-        await createVisit({
-          shopId: shop.id, shopName: shop.name, outcome: 'order',
-          items, payment: intent.params.payment || 'pending',
-          notes: '', nextFollowUp: null,
-        })
-        await setShopStatus(shop.id, 'visited')
-        Alert.alert('Order logged ✓', `${shop.name} — ${items.length} item(s)`)
+        console.log('[FieldRep Global] Navigating to', shop.name, 'with prefill:', prefill)
+        routerRef.current.push(`/order/${shop.id}?prefill=${encodeURIComponent(prefill)}`)
       }
 
       if (intent.name === 'mark_visit') {
         const shop = findShop(intent.params.shop_name)
         if (!shop) {
-          Alert.alert('Shop not found', `Could not find "${intent.params.shop_name}"`)
+          Alert.alert('Shop not found', `Could not match "${intent.params.shop_name}" to any shop on your route.`)
           return
         }
         await createVisit({
@@ -92,7 +98,16 @@ export default function RootLayout() {
           nextFollowUp: intent.params.next_date ?? null,
         })
         await setShopStatus(shop.id, 'visited')
-        Alert.alert('Visit logged ✓', shop.name)
+        Alert.alert('Visit logged', shop.name)
+      }
+
+      if (intent.name === 'open_shop') {
+        const shop = findShop(intent.params.shop_name)
+        if (!shop) {
+          Alert.alert('Shop not found', `Could not match "${intent.params.shop_name}" to any shop on your route.`)
+          return
+        }
+        routerRef.current.push(`/order/${shop.id}`)
       }
     })
 
