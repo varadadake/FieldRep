@@ -5,17 +5,20 @@ import {
   TextInput,
   FlatList,
   StyleSheet,
-  TouchableOpacity,
   Animated,
   Platform,
+  StatusBar,
+  Easing,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useVoice } from '@sociovate/samvaad'
 import { SHOPS } from '../../src/data/shops'
 import { searchShops } from '../../src/utils/search'
 import { getShopStatuses, getVisits } from '../../src/utils/storage'
 import ShopCard from '../../src/components/ShopCard'
+import VoiceOrb from '../../src/components/VoiceOrb'
 
 const formatDate = (iso) => {
   if (!iso) return null
@@ -29,8 +32,7 @@ export default function ShopList() {
   const [statuses, setStatuses] = useState({})
   const [lastVisits, setLastVisits] = useState({})
 
-  // Global mic on the list page — intents handled by _layout.jsx, so no local callback
-  const { isRecording, isProcessing, error, startRecording, stopAndProcess } = useVoice(null)
+  const { isRecording, isProcessing, startRecording, stopAndProcess } = useVoice(null)
 
   const loadData = useCallback(async () => {
     const [s, visits] = await Promise.all([getShopStatuses(), getVisits()])
@@ -42,173 +44,232 @@ export default function ShopList() {
     setLastVisits(lv)
   }, [])
 
-  useFocusEffect(
-    useCallback(() => { loadData() }, [loadData])
-  )
+  useFocusEffect(useCallback(() => { loadData() }, [loadData]))
 
   const filtered = useMemo(() => {
     if (!query.trim()) return SHOPS
     return searchShops(query)
   }, [query])
 
-  // Tap toggles record → stop+process
   const handleMicPress = useCallback(() => {
     if (isRecording) stopAndProcess()
     else if (!isProcessing) startRecording()
   }, [isRecording, isProcessing, startRecording, stopAndProcess])
 
-  // Pulse while recording
-  const pulse = useRef(new Animated.Value(1)).current
-  useEffect(() => {
-    if (isRecording) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulse, { toValue: 1.15, duration: 600, useNativeDriver: true }),
-          Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
-        ])
-      ).start()
-    } else {
-      pulse.stopAnimation()
-      Animated.timing(pulse, { toValue: 1, duration: 100, useNativeDriver: true }).start()
-    }
-  }, [isRecording])
+  // Stats
+  const visitedCount = Object.values(statuses).filter(s => s === 'visited').length
+  const pendingCount = SHOPS.length - visitedCount
 
-  const micBg = isRecording ? '#DC2626' : isProcessing ? '#6B7280' : '#2563EB'
-  const micIcon = isRecording ? '⏹' : isProcessing ? '⏳' : '🎙'
+  // Status bar banner fade
+  const bannerOpacity = useRef(new Animated.Value(0)).current
+  const bannerY = useRef(new Animated.Value(-8)).current
+
+  useEffect(() => {
+    if (isRecording || isProcessing) {
+      Animated.parallel([
+        Animated.spring(bannerOpacity, { toValue: 1, useNativeDriver: true, speed: 20 }),
+        Animated.spring(bannerY, { toValue: 0, useNativeDriver: true, speed: 20 }),
+      ]).start()
+    } else {
+      Animated.parallel([
+        Animated.timing(bannerOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(bannerY, { toValue: -8, duration: 300, useNativeDriver: true }),
+      ]).start()
+    }
+  }, [isRecording, isProcessing])
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>FieldRep</Text>
-          <Text style={styles.subtitle}>{SHOPS.length} shops on route</Text>
-        </View>
-        <Animated.View style={{ transform: [{ scale: pulse }] }}>
-          <TouchableOpacity
-            style={[styles.micBtn, { backgroundColor: micBg }]}
-            onPress={handleMicPress}
-            disabled={false}
-            activeOpacity={0.75}
-          >
-            <Text style={styles.micIcon}>{micIcon}</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-
-      {isRecording && (
-        <View style={styles.recordingBar}>
-          <View style={styles.recordingDot} />
-          <Text style={styles.recordingText}>Listening — tap the button again to send</Text>
-        </View>
-      )}
-
-      {isProcessing && (
-        <View style={styles.processingBar}>
-          <Text style={styles.processingText}>Processing your voice…</Text>
-        </View>
-      )}
-
-      {error && !isRecording && !isProcessing && (
-        <View style={styles.errorBar}>
-          <Text style={styles.errorText}>{error.message || 'Error — try again'}</Text>
-        </View>
-      )}
-
-      <View style={styles.searchWrap}>
-        <TextInput
-          style={styles.search}
-          placeholder="Search shops..."
-          value={query}
-          onChangeText={setQuery}
-          autoCorrect={false}
-        />
-      </View>
-
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => (
-          <ShopCard
-            shop={item}
-            status={statuses[String(item.id)] || 'pending'}
-            lastVisit={formatDate(lastVisits[item.id])}
-            onPress={() => router.push(`/order/${item.id}`)}
-          />
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>No shops match.</Text>}
-        contentContainerStyle={{ paddingVertical: 6, paddingBottom: 20 }}
+    <View style={styles.root}>
+      <StatusBar barStyle="light-content" backgroundColor="#080C14" />
+      <LinearGradient
+        colors={['#080C14', '#0D1220', '#080C14']}
+        style={StyleSheet.absoluteFill}
       />
-    </SafeAreaView>
+
+      {/* Subtle radial glow top-center */}
+      <View style={styles.topGlow} />
+
+      <SafeAreaView style={styles.safe} edges={['top']}>
+
+        {/* Header — orb lives here inline */}
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>FieldRep</Text>
+            <Text style={styles.subtitle}>Today's Route</Text>
+          </View>
+
+          {/* Stats */}
+          <View style={styles.statsRow}>
+            <View style={styles.statChip}>
+              <Text style={styles.statNum}>{visitedCount}</Text>
+              <Text style={styles.statLabel}>done</Text>
+            </View>
+            <View style={[styles.statChip, styles.statChipPending]}>
+              <Text style={[styles.statNum, { color: '#FFD60A' }]}>{pendingCount}</Text>
+              <Text style={[styles.statLabel, { color: 'rgba(255,214,10,0.6)' }]}>left</Text>
+            </View>
+          </View>
+
+          {/* Orb — inline, no own row */}
+          <VoiceOrb
+            isRecording={isRecording}
+            isProcessing={isProcessing}
+            onPress={handleMicPress}
+          />
+        </View>
+
+        {/* State banner */}
+        <Animated.View style={[
+          styles.banner,
+          {
+            opacity: bannerOpacity,
+            transform: [{ translateY: bannerY }],
+            backgroundColor: isRecording ? 'rgba(255,59,48,0.12)' : 'rgba(79,142,247,0.12)',
+            borderColor: isRecording ? 'rgba(255,59,48,0.25)' : 'rgba(79,142,247,0.25)',
+          }
+        ]}>
+          <View style={[styles.bannerDot, { backgroundColor: isRecording ? '#FF3B30' : '#4F8EF7' }]} />
+          <Text style={[styles.bannerText, { color: isRecording ? '#FF6B6B' : '#7BA8FF' }]}>
+            {isRecording ? 'Listening — tap to send' : 'Processing…'}
+          </Text>
+        </Animated.View>
+
+        {/* Search */}
+        <View style={styles.searchWrap}>
+          <Text style={styles.searchIcon}>⌕</Text>
+          <TextInput
+            style={styles.search}
+            placeholder="Search shops…"
+            placeholderTextColor="#4A4A55"
+            value={query}
+            onChangeText={setQuery}
+            autoCorrect={false}
+            selectionColor="#4F8EF7"
+          />
+          {query.length > 0 && (
+            <Text style={styles.searchClear} onPress={() => setQuery('')}>✕</Text>
+          )}
+        </View>
+
+        {/* List */}
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => (
+            <ShopCard
+              shop={item}
+              status={statuses[String(item.id)] || 'pending'}
+              lastVisit={formatDate(lastVisits[item.id])}
+              onPress={() => router.push(`/order/${item.id}`)}
+            />
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyIcon}>◉</Text>
+              <Text style={styles.empty}>No shops match</Text>
+            </View>
+          }
+          contentContainerStyle={{ paddingVertical: 8, paddingBottom: 100 }}
+          showsVerticalScrollIndicator={false}
+        />
+      </SafeAreaView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F3F4F6' },
+  root: { flex: 1, backgroundColor: '#080C14' },
+  safe: { flex: 1 },
+  topGlow: {
+    position: 'absolute',
+    top: -80,
+    left: '20%',
+    width: '60%',
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(79,142,247,0.08)',
+  },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    paddingBottom: 2,
+    gap: 8,
   },
-  title: { fontSize: 26, fontWeight: '800', color: '#111' },
-  subtitle: { fontSize: 13, color: '#6B7280', marginTop: 2 },
-  micBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+  title: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#F5F5F7',
+    letterSpacing: -1,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: '#636366',
+    marginTop: 1,
+    letterSpacing: 0.2,
+  },
+  statsRow: { flexDirection: 'row', gap: 8 },
+  statChip: {
     alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    backgroundColor: 'rgba(48,209,88,0.1)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(48,209,88,0.15)',
   },
-  micIcon: { fontSize: 22 },
-  recordingBar: {
+  statChipPending: {
+    backgroundColor: 'rgba(255,214,10,0.08)',
+    borderColor: 'rgba(255,214,10,0.15)',
+  },
+  statNum: { fontSize: 17, fontWeight: '800', color: '#30D158' },
+  statLabel: { fontSize: 10, fontWeight: '600', color: 'rgba(48,209,88,0.6)', letterSpacing: 0.5 },
+
+  // Banner
+  banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    gap: 8,
-    backgroundColor: '#FEF2F2',
-    borderBottomWidth: 1,
-    borderBottomColor: '#FECACA',
-  },
-  recordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#DC2626',
-  },
-  recordingText: { fontSize: 13, color: '#991B1B', fontWeight: '600' },
-  processingBar: {
-    paddingVertical: 8,
-    alignItems: 'center',
-    backgroundColor: '#F0F9FF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#BAE6FD',
-  },
-  processingText: { fontSize: 13, color: '#0369A1', fontWeight: '600' },
-  errorBar: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: '#FEF2F2',
-    borderBottomWidth: 1,
-    borderBottomColor: '#FECACA',
-  },
-  errorText: { fontSize: 13, color: '#991B1B', textAlign: 'center' },
-  searchWrap: { paddingHorizontal: 12, paddingVertical: 10 },
-  search: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    paddingHorizontal: 14,
+    marginHorizontal: 16,
+    marginBottom: 8,
     paddingVertical: 10,
-    fontSize: 15,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    gap: 8,
   },
-  empty: { textAlign: 'center', color: '#888', marginTop: 40 },
+  bannerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  bannerText: { fontSize: 13, fontWeight: '600' },
+
+  // Search
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  searchIcon: { fontSize: 18, color: '#636366', marginRight: 8, marginTop: 1 },
+  search: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#F5F5F7',
+  },
+  searchClear: { fontSize: 13, color: '#636366', paddingLeft: 8 },
+
+  // Empty
+  emptyWrap: { alignItems: 'center', marginTop: 60 },
+  emptyIcon: { fontSize: 32, color: '#2A2A35', marginBottom: 12 },
+  empty: { fontSize: 14, color: '#3A3A45' },
 })

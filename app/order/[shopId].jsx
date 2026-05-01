@@ -10,19 +10,22 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  StatusBar,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SHOPS } from '../../src/data/shops'
 import { findProduct } from '../../src/utils/search'
 import ProductSearch from '../../src/components/ProductSearch'
 import { createVisit, setShopStatus } from '../../src/utils/storage'
 import { useVoice } from '@sociovate/samvaad'
+import VoiceOrb from '../../src/components/VoiceOrb'
 
 const PAYMENT_OPTIONS = [
-  { key: 'cash', label: 'Cash' },
-  { key: 'credit', label: 'Credit' },
-  { key: 'pending', label: 'Pending' },
+  { key: 'cash', label: 'Cash', icon: '✦', color: '#30D158' },
+  { key: 'credit', label: 'Credit', icon: '◈', color: '#4F8EF7' },
+  { key: 'pending', label: 'Pending', icon: '◎', color: '#FFD60A' },
 ]
 
 function parsePaymentKey(raw) {
@@ -60,7 +63,6 @@ export default function OrderEntry() {
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
 
-  // Pre-fill from global voice command (navigated here from shop list)
   const prefillApplied = useRef(false)
   useEffect(() => {
     if (prefill && !prefillApplied.current) {
@@ -73,9 +75,7 @@ export default function OrderEntry() {
         if (paymentKey) setPayment(paymentKey)
         const summary = newItems.map((it) => `${it.productName} ×${it.qty}`).join(', ')
         showToast(summary || 'Order pre-filled — review below')
-      } catch (e) {
-        console.warn('[OrderEntry] Failed to parse prefill:', e)
-      }
+      } catch (e) {}
     }
   }, [prefill])
 
@@ -84,19 +84,17 @@ export default function OrderEntry() {
     setTimeout(() => setToast(null), 4000)
   }
 
-  // ── Voice ─────────────────────────────────────────────────────────────────
   const handleIntent = useCallback((intent) => {
     if (intent.name !== 'log_order') return
     const newItems = intentItemsToOrderItems(intent.params.items)
     if (newItems.length > 0) setItems(newItems)
     const paymentKey = parsePaymentKey(intent.params.payment)
     if (paymentKey) setPayment(paymentKey)
-    showToast(newItems.map((it) => `${it.productName} ×${it.qty}`).join(', ') || 'Order filled — review below')
+    showToast(newItems.map((it) => `${it.productName} ×${it.qty}`).join(', ') || 'Order filled')
   }, [])
 
-  const { isRecording, isProcessing, error: voiceError, startRecording, stopAndProcess } = useVoice(handleIntent)
+  const { isRecording, isProcessing, startRecording, stopAndProcess } = useVoice(handleIntent)
 
-  // Elapsed timer while processing so user sees it's not frozen
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     if (!isProcessing) { setElapsed(0); return }
@@ -104,34 +102,16 @@ export default function OrderEntry() {
     return () => clearInterval(t)
   }, [isProcessing])
 
-  // Tap toggles record → stop+process
   const handleMicPress = useCallback(() => {
     if (isRecording) stopAndProcess()
     else if (!isProcessing) startRecording()
   }, [isRecording, isProcessing, startRecording, stopAndProcess])
 
-  // Pulse while recording
-  const pulse = useRef(new Animated.Value(1)).current
-  useEffect(() => {
-    if (isRecording) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulse, { toValue: 1.08, duration: 700, useNativeDriver: true }),
-          Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
-        ])
-      ).start()
-    } else {
-      pulse.stopAnimation()
-      Animated.timing(pulse, { toValue: 1, duration: 150, useNativeDriver: true }).start()
-    }
-  }, [isRecording])
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
   if (!shop) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Text style={{ padding: 20 }}>Shop not found.</Text>
-      </SafeAreaView>
+      <View style={styles.root}>
+        <Text style={{ color: '#fff', padding: 20 }}>Shop not found.</Text>
+      </View>
     )
   }
 
@@ -153,7 +133,10 @@ export default function OrderEntry() {
   const submitOrder = async () => {
     if (items.length === 0 || submitting) return
     setSubmitting(true)
-    await createVisit({ shopId: shop.id, shopName: shop.name, outcome: 'order', items: items.filter((it) => it.qty > 0), payment, notes, nextFollowUp: null })
+    await createVisit({
+      shopId: shop.id, shopName: shop.name, outcome: 'order',
+      items: items.filter((it) => it.qty > 0), payment, notes, nextFollowUp: null,
+    })
     await setShopStatus(shop.id, 'visited')
     Alert.alert('Order logged ✓', '', [{ text: 'OK', onPress: () => router.back() }])
   }
@@ -161,293 +144,287 @@ export default function OrderEntry() {
   const markNoOrder = async () => {
     if (submitting) return
     setSubmitting(true)
-    await createVisit({ shopId: shop.id, shopName: shop.name, outcome: 'no_order', items: [], payment: 'pending', notes, nextFollowUp: null })
+    await createVisit({
+      shopId: shop.id, shopName: shop.name, outcome: 'no_order',
+      items: [], payment: 'pending', notes, nextFollowUp: null,
+    })
     await setShopStatus(shop.id, 'visited')
     Alert.alert('Visit logged ✓', '', [{ text: 'OK', onPress: () => router.back() }])
   }
 
-  // ── Derived button state ──────────────────────────────────────────────────
-  const btnBg = isRecording ? '#DC2626' : isProcessing ? '#6B7280' : '#16A34A'
-  const btnLabel = isRecording ? 'Tap to stop & send' : isProcessing ? `Processing… ${elapsed}s` : 'Tap to speak'
-  const btnIcon = isRecording ? '⏹' : isProcessing ? '⏳' : '🎙'
+  const totalItems = items.reduce((s, it) => s + it.qty, 0)
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={styles.root}>
+      <StatusBar barStyle="light-content" backgroundColor="#080C14" />
+      <LinearGradient colors={['#080C14', '#0D1220', '#080C14']} style={StyleSheet.absoluteFill} />
 
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.shopName}>{shop.name}</Text>
-          <Text style={styles.shopMeta}>{shop.area} · {shop.phone}</Text>
-        </View>
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
 
-        {/* Big mic button — always visible at the top, impossible to miss */}
-        <Animated.View style={[styles.micWrap, { transform: [{ scale: pulse }] }]}>
-          <TouchableOpacity
-            onPress={handleMicPress}
-            disabled={submitting}
-            activeOpacity={0.75}
-            style={[styles.micBtn, { backgroundColor: btnBg }]}
-          >
-            <Text style={styles.micBtnIcon}>{btnIcon}</Text>
-            <Text style={styles.micBtnLabel}>{btnLabel}</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Recording indicator bar */}
-        {isRecording && (
-          <View style={styles.recordingBar}>
-            <View style={styles.recordingDot} />
-            <Text style={styles.recordingText}>Listening — speak your order now</Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+              <Text style={styles.backText}>‹ Back</Text>
+            </TouchableOpacity>
+            <View style={styles.headerCenter}>
+              <Text style={styles.shopName} numberOfLines={1}>{shop.name}</Text>
+              <Text style={styles.shopMeta}>{shop.area}</Text>
+            </View>
+            <VoiceOrb
+              isRecording={isRecording}
+              isProcessing={isProcessing}
+              onPress={handleMicPress}
+            />
+            {totalItems > 0 && (
+              <View style={styles.itemCount}>
+                <Text style={styles.itemCountText}>{totalItems}</Text>
+              </View>
+            )}
           </View>
-        )}
 
-        {/* Error */}
-        {voiceError && !isRecording && !isProcessing && (
-          <View style={styles.errorBar}>
-            <Text style={styles.errorText}>{voiceError.message || 'Error — try again'}</Text>
-          </View>
-        )}
-
-        {/* Success toast */}
-        {toast && (
-          <View style={styles.toastBar}>
-            <Text style={styles.toastText}>✓ {toast}</Text>
-          </View>
-        )}
-
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Manual product search */}
-          <Text style={styles.sectionLabel}>Add Products</Text>
-          <ProductSearch onSelect={addProduct} />
-
-          {items.length > 0 && (
-            <View style={styles.itemsBox}>
-              <Text style={styles.sectionLabel}>Order Items</Text>
-              {items.map((it) => (
-                <View key={it.productId ?? it.productName} style={styles.itemRow}>
-                  <Text style={styles.itemName} numberOfLines={1}>{it.productName}</Text>
-                  <TextInput
-                    style={styles.qtyInput}
-                    value={String(it.qty)}
-                    onChangeText={(v) => updateQty(it.productId, v)}
-                    keyboardType="number-pad"
-                  />
-                  <TouchableOpacity onPress={() => removeItem(it.productId)}>
-                    <Text style={styles.removeText}>Remove</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
+          {/* Toast */}
+          {toast && (
+            <View style={styles.toast}>
+              <Text style={styles.toastText}>✓ {toast}</Text>
             </View>
           )}
 
-          <Text style={styles.sectionLabel}>Payment</Text>
-          <View style={styles.paymentRow}>
-            {PAYMENT_OPTIONS.map((opt) => {
-              const active = payment === opt.key
-              return (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[styles.paymentBtn, active && styles.paymentBtnActive]}
-                  onPress={() => setPayment(opt.key)}
-                >
-                  <Text style={[styles.paymentText, active && styles.paymentTextActive]}>{opt.label}</Text>
-                </TouchableOpacity>
-              )
-            })}
-          </View>
-
-          <Text style={styles.sectionLabel}>Notes</Text>
-          <TextInput
-            style={styles.notesInput}
-            placeholder="Add a note (optional)"
-            value={notes}
-            onChangeText={(t) => setNotes(t.slice(0, 200))}
-            multiline
-            maxLength={200}
-          />
-          <Text style={styles.charCount}>{notes.length}/200</Text>
-
-          <TouchableOpacity
-            style={[styles.primary, (items.length === 0 || isProcessing) && styles.primaryDisabled]}
-            onPress={submitOrder}
-            disabled={items.length === 0 || submitting || isProcessing}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 60 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.primaryText}>Submit Order</Text>
-          </TouchableOpacity>
+            {/* Order items */}
+            {items.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>ORDER ITEMS</Text>
+                <View style={styles.card}>
+                  {items.map((it, idx) => (
+                    <View
+                      key={it.productId ?? it.productName}
+                      style={[styles.itemRow, idx < items.length - 1 && styles.itemRowBorder]}
+                    >
+                      <View style={styles.itemBullet} />
+                      <Text style={styles.itemName} numberOfLines={1}>{it.productName}</Text>
+                      <TextInput
+                        style={styles.qtyInput}
+                        value={String(it.qty)}
+                        onChangeText={(v) => updateQty(it.productId, v)}
+                        keyboardType="number-pad"
+                        selectionColor="#4F8EF7"
+                      />
+                      <TouchableOpacity onPress={() => removeItem(it.productId)} style={styles.removeBtn}>
+                        <Text style={styles.removeText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
 
-          <TouchableOpacity style={styles.secondary} onPress={markNoOrder} disabled={submitting}>
-            <Text style={styles.secondaryText}>Mark Visit — No Order</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            {/* Product search */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>ADD PRODUCTS</Text>
+              <ProductSearch onSelect={addProduct} darkMode />
+            </View>
+
+            {/* Payment */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>PAYMENT</Text>
+              <View style={styles.paymentRow}>
+                {PAYMENT_OPTIONS.map((opt) => {
+                  const active = payment === opt.key
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[
+                        styles.payBtn,
+                        active && { backgroundColor: `${opt.color}18`, borderColor: opt.color },
+                      ]}
+                      onPress={() => setPayment(opt.key)}
+                    >
+                      <Text style={{ color: active ? opt.color : '#4A4A55', fontSize: 14, marginBottom: 3 }}>
+                        {opt.icon}
+                      </Text>
+                      <Text style={[styles.payBtnText, active && { color: opt.color }]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            </View>
+
+            {/* Notes */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>NOTES</Text>
+              <TextInput
+                style={styles.notesInput}
+                placeholder="Add a note (optional)"
+                placeholderTextColor="#3A3A4A"
+                value={notes}
+                onChangeText={(t) => setNotes(t.slice(0, 200))}
+                multiline
+                maxLength={200}
+                selectionColor="#4F8EF7"
+              />
+              <Text style={styles.charCount}>{notes.length}/200</Text>
+            </View>
+
+            {/* Actions */}
+            <View style={styles.section}>
+              <TouchableOpacity
+                style={[styles.primaryBtn, (items.length === 0 || isProcessing) && styles.primaryBtnDisabled]}
+                onPress={submitOrder}
+                disabled={items.length === 0 || submitting || isProcessing}
+              >
+                <LinearGradient
+                  colors={items.length === 0 ? ['#1A1A25', '#1A1A25'] : ['#4F8EF7', '#2D6EE8']}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                  style={styles.primaryBtnGrad}
+                >
+                  <Text style={styles.primaryText}>
+                    {items.length === 0 ? 'Add items to submit' : `Submit Order · ${totalItems} items`}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.secondaryBtn} onPress={markNoOrder} disabled={submitting}>
+                <Text style={styles.secondaryText}>Mark Visit — No Order</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F3F4F6' },
+  root: { flex: 1, backgroundColor: '#080C14' },
+  safe: { flex: 1 },
 
   header: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  backBtn: { paddingVertical: 6, alignSelf: 'flex-start' },
-  backText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
-  shopName: { fontSize: 22, fontWeight: '800', color: '#111', marginTop: 4 },
-  shopMeta: { fontSize: 13, color: '#6B7280', marginTop: 2 },
-
-  // Big mic button — outside the scroll, always visible
-  micWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
-    backgroundColor: '#F3F4F6',
-  },
-  micBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    borderRadius: 16,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    elevation: 5,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  micBtnIcon: { fontSize: 26 },
-  micBtnLabel: { fontSize: 18, fontWeight: '700', color: '#fff', letterSpacing: 0.2 },
-
-  // Recording bar below the button
-  recordingBar: {
-    flexDirection: 'row',
+  backBtn: { paddingRight: 12, paddingVertical: 4 },
+  backText: { color: '#4F8EF7', fontSize: 20, fontWeight: '400' },
+  headerCenter: { flex: 1 },
+  shopName: { fontSize: 18, fontWeight: '800', color: '#F5F5F7', letterSpacing: -0.5 },
+  shopMeta: { fontSize: 12, color: '#636366', marginTop: 1 },
+  itemCount: {
+    backgroundColor: '#4F8EF7',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    gap: 8,
-    backgroundColor: '#FEF2F2',
-    borderBottomWidth: 1,
-    borderBottomColor: '#FECACA',
   },
-  recordingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#DC2626',
-  },
-  recordingText: { fontSize: 13, color: '#991B1B', fontWeight: '600' },
+  itemCountText: { color: '#fff', fontSize: 13, fontWeight: '800' },
 
-  errorBar: {
-    backgroundColor: '#FEF2F2',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  toast: {
+    backgroundColor: 'rgba(48,209,88,0.12)',
     borderBottomWidth: 1,
-    borderBottomColor: '#FECACA',
-  },
-  errorText: { color: '#991B1B', fontSize: 13, textAlign: 'center' },
-
-  toastBar: {
-    backgroundColor: '#F0FDF4',
+    borderBottomColor: 'rgba(48,209,88,0.2)',
     paddingVertical: 10,
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#BBF7D0',
   },
-  toastText: { color: '#166534', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  toastText: { color: '#30D158', fontSize: 13, fontWeight: '600', textAlign: 'center' },
 
-  // Shared form styles
+  section: { paddingHorizontal: 16, marginTop: 20 },
   sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6B7280',
-    marginTop: 18,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#4A4A5A',
+    letterSpacing: 1.5,
+    marginBottom: 10,
   },
-  itemsBox: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 10,
   },
-  itemName: { flex: 1, fontSize: 14, color: '#111' },
+  itemRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  itemBullet: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#4F8EF7',
+  },
+  itemName: { flex: 1, fontSize: 14, color: '#D0D0DB' },
   qtyInput: {
-    width: 56,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 6,
+    width: 52,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 8,
     textAlign: 'center',
-    marginHorizontal: 8,
-    backgroundColor: '#fff',
     fontSize: 14,
+    fontWeight: '700',
+    color: '#F5F5F7',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  removeText: { color: '#DC2626', fontSize: 13, fontWeight: '600' },
+  removeBtn: { padding: 4 },
+  removeText: { color: '#FF453A', fontSize: 14, fontWeight: '600' },
+
   paymentRow: { flexDirection: 'row', gap: 8 },
-  paymentBtn: {
+  payBtn: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
   },
-  paymentBtnActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
-  paymentText: { color: '#374151', fontSize: 13, fontWeight: '600' },
-  paymentTextActive: { color: '#fff' },
+  payBtnText: { fontSize: 13, fontWeight: '700', color: '#4A4A55' },
+
   notesInput: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    padding: 14,
     minHeight: 80,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(255,255,255,0.08)',
     fontSize: 14,
+    color: '#D0D0DB',
     textAlignVertical: 'top',
   },
-  charCount: { fontSize: 11, color: '#9CA3AF', textAlign: 'right', marginTop: 4 },
-  primary: {
-    backgroundColor: '#2563EB',
+  charCount: { fontSize: 11, color: '#3A3A4A', textAlign: 'right', marginTop: 4 },
+
+  primaryBtn: { borderRadius: 14, overflow: 'hidden', marginBottom: 10 },
+  primaryBtnDisabled: { opacity: 0.4 },
+  primaryBtnGrad: { paddingVertical: 18, alignItems: 'center', borderRadius: 14 },
+  primaryText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
+
+  secondaryBtn: {
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
-    marginTop: 24,
-  },
-  primaryDisabled: { backgroundColor: '#9CA3AF' },
-  primaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  secondary: {
-    backgroundColor: '#fff',
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  secondaryText: { color: '#374151', fontSize: 15, fontWeight: '600' },
+  secondaryText: { color: '#636366', fontSize: 15, fontWeight: '600' },
 })
